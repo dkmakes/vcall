@@ -1019,6 +1019,8 @@
     E.faceToggle.textContent = S.faceShown ? 'Hide face' : 'Show face';
     E.panelMic.textContent = S.micOn ? 'Mic on' : 'Mic off';
     E.panelMic.classList.toggle('off', !S.micOn);
+    E.panelCam.textContent = camLive() ? 'Camera on' : 'Camera off';
+    E.panelCam.classList.toggle('off', !camLive());
     const pipSupported = 'documentPictureInPicture' in window;
     E.pipOpen.hidden = !pipSupported || !!S.pipWin || S.myShare !== 'me';
     E.pipOpen2.hidden = E.pipOpen.hidden;
@@ -1083,6 +1085,7 @@
 
     E.micBtn.addEventListener('click', () => { S.micOn = !S.micOn; LS.set('micOn', S.micOn); applyTrackEnabled(); updateUI(); });
     E.panelMic.addEventListener('click', () => E.micBtn.click());
+    E.panelCam.addEventListener('click', () => E.camBtn.click());
     E.camBtn.addEventListener('click', () => {
       if (!S.localVideo) { toast('Camera not available'); return; }
       S.camOn = !S.camOn;
