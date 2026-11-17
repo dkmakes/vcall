@@ -732,12 +732,13 @@
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'window', frameRate: { ideal: 15, max: 30 } },
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        // restrictOwnAudio: 시스템 소리에서 이 통화 페이지가 내는 소리(상대 목소리)는 빼고 보냄 → 메아리 방지 (지원하는 Chrome에서)
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true },
         monitorTypeSurfaces: 'exclude',   // Chrome: 전체 화면 항목 숨김
         selfBrowserSurface: 'exclude',    // 통화 탭 자체는 고를 수 없음
         surfaceSwitching: 'include',      // 공유 중 다른 탭으로 바꾸기 허용
-        systemAudio: 'exclude',
-        windowAudio: 'exclude',           // 창 공유에는 소리 스위치를 띄우지 않음 (메아리 방지)
+        systemAudio: 'include',
+        windowAudio: 'system',            // 창 공유 때 "system audio" 스위치를 켜진 상태로
         suppressLocalAudioPlayback: false,
       });
     } catch (e) {
@@ -763,8 +764,6 @@
       updateUI();
       return;
     }
-    // 창 공유는 맥 전체 소리(상대 목소리 포함)가 섞여 메아리가 생기므로 소리는 보내지 않음
-    if (audioTrack && surface !== 'browser') { audioTrack.stop(); audioTrack = null; }
     // 알 수 없으면 전체 화면처럼 다룸 (얼굴 숨김이 더 안전)
     S.shareSurface = surface === 'window' || surface === 'browser' ? surface : 'monitor';
     try { track.contentHint = 'detail'; } catch (e) { /* 무시 */ }
@@ -786,7 +785,7 @@
     const what = (S.shareSurface === 'window' ? 'a window' : S.shareSurface === 'browser' ? 'a tab' : 'your screen')
       + (audioTrack ? ' with sound' : '');
     let msg = S.partnerShare === 'on' ? `Sharing ${what} · their share stopped automatically` : `Sharing ${what}`;
-    if (!audioTrack && S.shareSurface === 'window') msg += ' · To send video sound, share a Chrome tab instead';
+    if (!audioTrack) msg += ' · No sound: turn on “system audio” or “tab audio” when sharing to send sound';
     toast(msg, audioTrack ? 3200 : 5000);
     S.partnerShare = null;
     updateUI();
