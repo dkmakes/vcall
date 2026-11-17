@@ -2,6 +2,7 @@ name = "vcall"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
 workers_dev = true
+preview_urls = false
 
 # 한 개의 통화방을 관리하는 Durable Object (무료 플랜은 SQLite 방식)
 [[durable_objects.bindings]]
