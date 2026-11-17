@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0E1014">
 <title>dkmakes call</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232F62E0'/%3E%3Cpath d='M8 11h11v10H8zM19 15l5-3v8l-5-3z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 
@@ -17,6 +17,7 @@
       <svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></svg>
     </span>
     <span>dkmakes call</span>
+    <span id="callTimer" class="timer" role="timer" aria-label="Call duration" hidden><span class="tdot"></span><span id="timerText">00:00</span></span>
   </div>
   <span class="muted small" id="hostLabel"></span>
 </header>
@@ -173,7 +174,7 @@
     <div id="panelHome" class="panel-home">
         <div id="panel" class="panel">
           <div class="panel-head">
-            <span>Preview</span>
+            <span>Preview · <span id="pipTimer">00:00</span></span>
             <span class="muted">Red dot = where they’re pointing</span>
           </div>
           <div class="panel-screen">
@@ -249,7 +250,7 @@
 <audio id="remoteShareAudio" autoplay></audio>
 <audio id="testAudio"></audio>
 
-<script src="config.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="config.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

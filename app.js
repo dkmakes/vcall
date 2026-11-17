@@ -57,6 +57,7 @@
     pFrame: false,
     pipWin: null,
     faceShown: LS.get('faceShown', true),
+    callStart: null,        // 통화가 실제로 연결된 시각
   };
 
   // ---------- 공통 ----------
@@ -454,6 +455,8 @@
           createPC();
         } else {
           S.partner = null;
+          S.callStart = null;
+          tickTimer();
         }
         S.partnerShare = null;
         updateUI();
@@ -488,6 +491,8 @@
   }
 
   function partnerGone() {
+    S.callStart = null;
+    tickTimer();
     closePC();
     S.partner = null;
     S.partnerShare = null;
@@ -613,6 +618,7 @@
     if (S.pc !== pc) return;
     const st = pc.connectionState;
     if (st === 'connected') {
+      if (!S.callStart) { S.callStart = Date.now(); tickTimer(); }
       clearTimeout(S.discTimer);
       hideNet();
       playAll();
@@ -982,6 +988,25 @@
     surf.addEventListener('pointercancel', up);
   }
 
+  // ---------- 통화 시간 ----------
+  function fmtDuration(ms) {
+    const t = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    const s = t % 60;
+    const mm = String(m).padStart(2, '0');
+    const ss = String(s).padStart(2, '0');
+    return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+  function tickTimer() {
+    const on = !!S.callStart && S.screen === 'call';
+    E.callTimer.hidden = !on;
+    const text = on ? fmtDuration(Date.now() - S.callStart) : '00:00';
+    E.timerText.textContent = text;
+    E.pipTimer.textContent = text;
+  }
+  setInterval(tickTimer, 1000);
+
   // ---------- 화면 갱신 ----------
   function updateUI() {
     if (S.screen === 'pre') updatePre();
@@ -1047,6 +1072,8 @@
   // ---------- 나가기 ----------
   function leaveCall(silent) {
     S.leaving = true;
+    S.callStart = null;
+    tickTimer();
     if (S.myShare) stopShare(true);
     const ws = S.ws;
     S.ws = null;
