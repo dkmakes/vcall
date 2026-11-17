@@ -731,12 +731,13 @@
     let stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { displaySurface: 'browser', frameRate: { ideal: 15, max: 30 } },
+        video: { displaySurface: 'window', frameRate: { ideal: 15, max: 30 } },
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
         monitorTypeSurfaces: 'exclude',   // Chrome: 전체 화면 항목 숨김
         selfBrowserSurface: 'exclude',    // 통화 탭 자체는 고를 수 없음
         surfaceSwitching: 'include',      // 공유 중 다른 탭으로 바꾸기 허용
         systemAudio: 'exclude',
+        windowAudio: 'exclude',           // 창 공유에는 소리 스위치를 띄우지 않음 (메아리 방지)
         suppressLocalAudioPlayback: false,
       });
     } catch (e) {
@@ -749,7 +750,7 @@
       return;
     }
     const track = stream.getVideoTracks()[0];
-    const audioTrack = stream.getAudioTracks()[0] || null;
+    let audioTrack = stream.getAudioTracks()[0] || null;
     const stopAll = () => stream.getTracks().forEach((t) => t.stop());
     if (S.myShare !== 'starting') { stopAll(); return; } // 그 사이 취소되었거나 상대가 공유 시작
     const surface = track.getSettings ? track.getSettings().displaySurface : undefined;
@@ -762,6 +763,8 @@
       updateUI();
       return;
     }
+    // 창 공유는 맥 전체 소리(상대 목소리 포함)가 섞여 메아리가 생기므로 소리는 보내지 않음
+    if (audioTrack && surface !== 'browser') { audioTrack.stop(); audioTrack = null; }
     // 알 수 없으면 전체 화면처럼 다룸 (얼굴 숨김이 더 안전)
     S.shareSurface = surface === 'window' || surface === 'browser' ? surface : 'monitor';
     try { track.contentHint = 'detail'; } catch (e) { /* 무시 */ }
