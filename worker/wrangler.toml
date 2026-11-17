@@ -1,0 +1,22 @@
+name = "vcall"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# 한 개의 통화방을 관리하는 Durable Object (무료 플랜은 SQLite 방식)
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+[vars]
+# 이 주소에서 열린 화면만 서버를 쓸 수 있어요
+ALLOWED_ORIGINS = "https://dkmakes.com,https://www.dkmakes.com"
+
+# 대시보드에서 Secret으로 넣는 값 (코드에는 없음)
+#   ROOM_PASSWORD       통화방 비밀번호
+#   TURN_KEY_ID         Realtime > TURN 키 ID (선택)
+#   TURN_KEY_API_TOKEN  Realtime > TURN 키 API 토큰 (선택)
