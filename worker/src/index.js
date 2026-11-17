@@ -184,7 +184,7 @@ export class Room extends DurableObject {
 
   join(url) {
     const cid = (url.searchParams.get("cid") || "").slice(0, 40);
-    const name = (url.searchParams.get("name") || "").trim().slice(0, 30) || "상대방";
+    const name = (url.searchParams.get("name") || "").trim().slice(0, 30) || "Guest";
     const now = Date.now();
 
     // 같은 기기에서 다시 들어왔거나(새로고침) 응답이 끊긴 연결은 정리

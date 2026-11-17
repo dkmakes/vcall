@@ -81,7 +81,7 @@
     return { ok: res.ok, status: res.status, data };
   }
 
-  function partnerName() { return (S.partner && S.partner.name) || '상대방'; }
+  function partnerName() { return (S.partner && S.partner.name) || 'Partner'; }
   function initialOf(name) { return (String(name || '?').trim()[0] || '?').toUpperCase(); }
   function camLive() { return !!(S.camOn && S.localVideo); }
   const round = (n) => Math.round(n * 10000) / 10000;
@@ -115,7 +115,7 @@
   async function submitPw(e) {
     e.preventDefault();
     const pw = E.pwInput.value;
-    if (!pw) { pwError('비밀번호를 입력해 주세요.'); return; }
+    if (!pw) { pwError('Please enter the password.'); return; }
     E.pwBtn.disabled = true;
     pwError('');
     try {
@@ -131,17 +131,17 @@
         goPrejoin();
       } else if (r.status === 429) {
         const min = Math.max(1, Math.ceil(((r.data && r.data.retryAfter) || 900) / 60));
-        pwError(`여러 번 틀려서 잠시 막혔어요. ${min}분 뒤에 다시 시도해 주세요.`);
+        pwError(`Too many wrong attempts. Try again in ${min} min.`);
       } else if (r.status === 401) {
-        pwError('비밀번호가 틀렸습니다. 다시 입력해 주세요.');
+        pwError('Wrong password. Please try again.');
         E.pwInput.select();
       } else if (r.data && r.data.error === 'not_configured') {
-        pwError('서버에 비밀번호가 아직 설정되지 않았어요.');
+        pwError('The server has no password set yet.');
       } else {
-        pwError('서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.');
+        pwError('Couldn’t reach the server. Please try again shortly.');
       }
     } catch (err) {
-      pwError('서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.');
+      pwError('Couldn’t reach the server. Please try again shortly.');
     } finally {
       E.pwBtn.disabled = false;
     }
@@ -181,11 +181,11 @@
     applyTrackEnabled();
     attachLocalPreviews();
     const miss = [];
-    if (!S.localVideo) miss.push('카메라');
-    if (!S.localAudio) miss.push('마이크');
+    if (!S.localVideo) miss.push('camera');
+    if (!S.localAudio) miss.push('microphone');
     if (miss.length) {
-      const what = miss.length === 2 ? '카메라와 마이크를' : miss[0] + '를';
-      E.preErr.textContent = `${what} 사용할 수 없어요. 브라우저 주소창 옆의 권한 설정을 확인해 주세요. 이대로 입장할 수도 있어요.`;
+      const what = miss.length === 2 ? 'camera and microphone' : miss[0];
+      E.preErr.textContent = `Can’t use your ${what}. Check the permission icon next to the address bar. You can still join without it.`;
       E.preErr.hidden = false;
     } else {
       E.preErr.hidden = true;
@@ -213,12 +213,12 @@
   async function fillDevices() {
     let devs = [];
     try { devs = await navigator.mediaDevices.enumerateDevices(); } catch (e) { /* 지원 안 함 */ }
-    fillSelect(E.camSel, devs.filter((d) => d.kind === 'videoinput'), S.localVideo && S.localVideo.getSettings().deviceId, '카메라');
-    fillSelect(E.micSel, devs.filter((d) => d.kind === 'audioinput'), S.localAudio && S.localAudio.getSettings().deviceId, '마이크');
+    fillSelect(E.camSel, devs.filter((d) => d.kind === 'videoinput'), S.localVideo && S.localVideo.getSettings().deviceId, 'Camera');
+    fillSelect(E.micSel, devs.filter((d) => d.kind === 'audioinput'), S.localAudio && S.localAudio.getSettings().deviceId, 'Microphone');
     const outs = devs.filter((d) => d.kind === 'audiooutput');
     const canSink = 'setSinkId' in HTMLMediaElement.prototype;
     if (canSink && outs.length) {
-      fillSelect(E.spkSel, outs, LS.get('spkId') || 'default', '스피커');
+      fillSelect(E.spkSel, outs, LS.get('spkId') || 'default', 'Speaker');
       E.spkSel.hidden = false;
       E.spkNote.hidden = true;
     } else {
@@ -230,7 +230,7 @@
   function fillSelect(sel, list, current, label) {
     sel.innerHTML = '';
     if (!list.length) {
-      sel.add(new Option(`${label} 없음`, ''));
+      sel.add(new Option(`No ${label.toLowerCase()} found`, ''));
       sel.disabled = true;
       return;
     }
@@ -259,7 +259,7 @@
       E.preErr.hidden = true;
     } catch (e) {
       if (kind === 'audio') S.localAudio = null; else S.localVideo = null;
-      E.preErr.textContent = '선택한 장치를 사용할 수 없어요. 다른 장치를 골라 주세요.';
+      E.preErr.textContent = 'Can’t use that device. Please choose another one.';
       E.preErr.hidden = false;
     }
     updatePre();
@@ -271,9 +271,9 @@
     E.micSwitch.classList.toggle('on', S.micOn);
     E.micSwitch.setAttribute('aria-pressed', String(S.micOn));
     E.preCamOff.hidden = camLive();
-    E.preCamOff.textContent = S.localVideo ? '카메라가 꺼져 있어요' : '카메라를 사용할 수 없어요';
-    E.micHint.textContent = !S.localAudio ? '마이크를 사용할 수 없어요'
-      : S.micOn ? '말해 보세요. 막대가 움직이면 정상이에요.' : '마이크가 꺼져 있어요';
+    E.preCamOff.textContent = S.localVideo ? 'Camera is off' : 'Camera not available';
+    E.micHint.textContent = !S.localAudio ? 'Microphone not available'
+      : S.micOn ? 'Say something. If the bar moves, your mic works.' : 'Microphone is off';
   }
 
   // 마이크 음량 막대
@@ -321,7 +321,7 @@
     const ctx = getAudioCtx();
     if (!ctx) return;
     E.spkTest.disabled = true;
-    E.spkTest.textContent = '재생 중…';
+    E.spkTest.textContent = 'Playing…';
     try {
       const dest = ctx.createMediaStreamDestination();
       const osc = ctx.createOscillator();
@@ -341,7 +341,7 @@
       if (spk && E.testAudio.setSinkId) await E.testAudio.setSinkId(spk).catch(() => {});
       await E.testAudio.play();
     } catch (e) { /* 재생 실패 */ }
-    setTimeout(() => { E.spkTest.disabled = false; E.spkTest.textContent = '테스트 소리'; }, 1000);
+    setTimeout(() => { E.spkTest.disabled = false; E.spkTest.textContent = 'Test sound'; }, 1000);
   }
 
   function applySink() {
@@ -361,7 +361,7 @@
       stopMeter();
       stopLocal();
       show('pw');
-      pwError('다시 비밀번호를 입력해 주세요.');
+      pwError('Please enter the password again.');
       return;
     }
     stopMeter();
@@ -381,7 +381,7 @@
   function connectWS() {
     const u = new URL(API.replace(/^http/, 'ws') + '/ws');
     u.searchParams.set('token', S.token);
-    u.searchParams.set('name', S.name || '상대방');
+    u.searchParams.set('name', S.name || 'Guest');
     u.searchParams.set('cid', clientId);
     const ws = new WebSocket(u.toString());
     S.ws = ws;
@@ -403,8 +403,8 @@
       if (S.ws !== ws) return;
       S.ws = null;
       if (S.leaving || S.screen !== 'call' || e.code === 4001) return;
-      if (S.wsRetries >= 6) { showNet('서버에 연결할 수 없어요.'); return; }
-      showNet('서버 연결이 끊겼어요. 다시 연결하는 중…');
+      if (S.wsRetries >= 6) { showNet('Can’t connect to the server.'); return; }
+      showNet('Lost connection to the server. Reconnecting…');
       const delay = Math.min(8000, 1000 * 2 ** S.wsRetries);
       S.wsRetries += 1;
       setTimeout(() => { if (!S.leaving && S.screen === 'call' && !S.ws) reconnect(); }, delay);
@@ -417,7 +417,7 @@
       leaveCall(true);
       clearToken();
       show('pw');
-      pwError('다시 비밀번호를 입력해 주세요.');
+      pwError('Please enter the password again.');
       return;
     }
     if (!S.leaving && S.screen === 'call' && !S.ws) connectWS();
@@ -432,7 +432,7 @@
     S.partner = null;
     S.partnerShare = null;
     updateUI();
-    showNet('다시 연결하는 중…');
+    showNet('Reconnecting…');
     reconnect();
   }
 
@@ -459,7 +459,7 @@
         S.partner = { id: m.id, name: m.name };
         S.partnerCam = true;
         S.partnerShare = null;
-        toast(`${partnerName()}님이 입장했어요`);
+        toast(`${partnerName()} joined`);
         startAsOfferer();
         updateUI();
         break;
@@ -489,7 +489,7 @@
     S.partner = null;
     S.partnerShare = null;
     if (S.myShare) stopShare(false);
-    toast('상대방이 나갔어요');
+    toast('The other person left');
     updateUI();
   }
 
@@ -614,12 +614,12 @@
       clearTimeout(S.discTimer);
       S.discTimer = setTimeout(() => {
         if (S.pc === pc && pc.connectionState !== 'connected') {
-          showNet('연결이 불안정해요. 다시 연결하는 중…');
+          showNet('Connection is unstable. Reconnecting…');
           requestRestart();
         }
       }, 2500);
     } else if (st === 'failed') {
-      showNet('연결이 끊겼어요. 다시 연결하는 중…');
+      showNet('Connection lost. Reconnecting…');
       requestRestart();
     }
   }
@@ -682,18 +682,18 @@
     const prev = S.partnerShare;
     if (s === 'starting') {
       S.partnerShare = 'starting';
-      if (S.myShare === 'me') toast('상대방이 화면 공유를 준비하고 있어요');
+      if (S.myShare === 'me') toast('The other person is starting to share');
     } else if (s === 'on') {
       S.partnerShare = 'on';
       if (S.myShare) {
         stopShare(false);
-        toast('상대방이 화면 공유를 시작해서 내 공유는 자동으로 중지됐어요');
+        toast('The other person started sharing, so your share stopped');
       }
       if (prev !== 'on') waitFirstFrame();
     } else {
       S.partnerShare = null;
       S.pFrame = false;
-      if (prev === 'on') toast('상대방이 화면 공유를 끝냈어요');
+      if (prev === 'on') toast('The other person stopped sharing');
     }
     updateUI();
   }
@@ -716,7 +716,7 @@
 
   async function startShare() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-      toast('이 브라우저는 화면 공유를 지원하지 않아요');
+      toast('This browser can’t share the screen');
       return;
     }
     S.myShare = 'starting';
@@ -735,7 +735,7 @@
       if (S.myShare === 'starting') {
         S.myShare = null;
         sendPeer({ t: 'share', s: 'off' });
-        toast('화면 공유를 취소했어요');
+        toast('Screen share cancelled');
         updateUI();
       }
       return;
@@ -747,7 +747,7 @@
       track.stop();
       S.myShare = null;
       sendPeer({ t: 'share', s: 'off' });
-      toast('전체 화면을 선택해 주세요. 창이나 탭은 공유할 수 없어요', 4500);
+      toast('Please choose Entire screen. Windows and tabs can’t be shared', 4500);
       updateUI();
       return;
     }
@@ -761,7 +761,7 @@
     E.myScreen.srcObject = new MediaStream([track]);
     S.myShare = 'me';
     sendPeer({ t: 'share', s: 'on' });
-    toast(S.partnerShare === 'on' ? '내 화면 공유를 시작했어요 · 상대방의 공유는 자동으로 중지됐어요' : '전체 화면 공유를 시작했어요');
+    toast(S.partnerShare === 'on' ? 'You’re sharing now · their share stopped automatically' : 'Sharing your entire screen');
     S.partnerShare = null;
     updateUI();
     playAll();
@@ -791,7 +791,7 @@
     closePip();
     if (notify) {
       sendPeer({ t: 'share', s: 'off' });
-      if (was === 'me') toast('화면 공유를 중지했어요');
+      if (was === 'me') toast('Screen share stopped');
     }
     updateUI();
   }
@@ -800,7 +800,7 @@
     if (S.myShare === 'starting') {
       S.myShare = null;
       sendPeer({ t: 'share', s: 'off' });
-      toast('화면 공유를 취소했어요');
+      toast('Screen share cancelled');
       updateUI();
     } else if (S.myShare === 'me') {
       stopShare(true);
@@ -824,7 +824,7 @@
     link.rel = 'stylesheet';
     link.href = new URL('style.css', location.href).href;
     win.document.head.append(link);
-    win.document.title = '미리보기';
+    win.document.title = 'Preview';
     win.document.body.className = 'pip-body';
     win.document.body.append(E.panel);
     S.pipWin = win;
@@ -963,7 +963,7 @@
     E.remoteCamOff2.hidden = pcam;
     E.panelFaceOff.hidden = pcam;
 
-    const myName = S.name ? `${S.name} (나)` : '나';
+    const myName = S.name ? `${S.name} (you)` : 'You';
     E.selfTag.textContent = myName;
     E.selfTag2.textContent = myName;
     E.selfOff.hidden = camLive();
@@ -973,8 +973,8 @@
     E.meLive.hidden = S.myShare !== 'me';
     E.panelHome.hidden = S.myShare !== 'me';
     E.panelFace.hidden = !S.faceShown || !has;
-    E.faceToggle.textContent = S.faceShown ? '얼굴 숨기기' : '얼굴 보이기';
-    E.panelMic.textContent = S.micOn ? '마이크 켜짐' : '마이크 꺼짐';
+    E.faceToggle.textContent = S.faceShown ? 'Hide face' : 'Show face';
+    E.panelMic.textContent = S.micOn ? 'Mic on' : 'Mic off';
     E.panelMic.classList.toggle('off', !S.micOn);
     const pipSupported = 'documentPictureInPicture' in window;
     E.pipOpen.hidden = !pipSupported || !!S.pipWin || S.myShare !== 'me';
@@ -986,11 +986,11 @@
     E.ptrHint.hidden = !ready;
 
     E.micBtn.classList.toggle('off', !S.micOn);
-    E.micBtn.setAttribute('aria-label', S.micOn ? '마이크 끄기' : '마이크 켜기');
+    E.micBtn.setAttribute('aria-label', S.micOn ? 'Mute microphone' : 'Unmute microphone');
     E.camBtn.classList.toggle('off', !camLive());
-    E.camBtn.setAttribute('aria-label', camLive() ? '카메라 끄기' : '카메라 켜기');
+    E.camBtn.setAttribute('aria-label', camLive() ? 'Turn camera off' : 'Turn camera on');
     E.shareBtn.classList.toggle('active', !!S.myShare);
-    E.shareBtn.setAttribute('aria-label', S.myShare ? '화면 공유 중지' : '화면 공유');
+    E.shareBtn.setAttribute('aria-label', S.myShare ? 'Stop sharing' : 'Share screen');
   }
 
   // ---------- 나가기 ----------
@@ -1007,7 +1007,7 @@
     stopLocal();
     hideNet();
     if (!silent) {
-      E.leftTitle.textContent = '통화를 종료했습니다';
+      E.leftTitle.textContent = 'You left the call';
       show('left');
     }
   }
@@ -1028,14 +1028,14 @@
     E.preCancel.addEventListener('click', () => {
       stopMeter();
       stopLocal();
-      E.leftTitle.textContent = '입장을 취소했어요';
+      E.leftTitle.textContent = 'You didn’t join';
       show('left');
     });
 
     E.micBtn.addEventListener('click', () => { S.micOn = !S.micOn; LS.set('micOn', S.micOn); applyTrackEnabled(); updateUI(); });
     E.panelMic.addEventListener('click', () => E.micBtn.click());
     E.camBtn.addEventListener('click', () => {
-      if (!S.localVideo) { toast('카메라를 사용할 수 없어요'); return; }
+      if (!S.localVideo) { toast('Camera not available'); return; }
       S.camOn = !S.camOn;
       LS.set('camOn', S.camOn);
       applyTrackEnabled();
@@ -1052,7 +1052,7 @@
     E.reconnectBtn.addEventListener('click', manualReconnect);
     E.copyLink.addEventListener('click', () => {
       const url = location.origin + location.pathname.replace(/index\.html$/, '');
-      if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast('주소를 복사했어요'), () => toast(url));
+      if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast('Address copied'), () => toast(url));
       else toast(url);
     });
 
@@ -1060,7 +1060,7 @@
     E.retryFullBtn.addEventListener('click', () => goPrejoin());
     E.forgetBtn.addEventListener('click', () => {
       clearToken();
-      toast('이 기기에서 비밀번호 기억을 지웠어요');
+      toast('Password forgotten on this device');
       show('pw');
     });
 
