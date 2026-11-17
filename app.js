@@ -48,8 +48,9 @@
     isOfferer: false,
     pending: [],
     sigChain: Promise.resolve(),
-    remote: { audio: null, cam: null, screen: null },
+    remote: { audio: null, cam: null, screen: null, shareAudio: null },
     screenTrack: null,
+    screenAudioTrack: null,
     shareSurface: null,     // 'monitor' | 'window' | 'browser'
     myShare: null,          // null | 'starting' | 'me'
     partnerShare: null,     // null | 'starting' | 'on'
@@ -88,7 +89,7 @@
   const round = (n) => Math.round(n * 10000) / 10000;
 
   function playAll() {
-    [E.remoteAudio, E.remoteCam, E.remoteCam2, E.panelFaceVideo, E.remoteScreen, E.myScreen, E.selfVideo, E.selfVideo2, E.preVideo]
+    [E.remoteAudio, E.remoteShareAudio, E.remoteCam, E.remoteCam2, E.panelFaceVideo, E.remoteScreen, E.myScreen, E.selfVideo, E.selfVideo2, E.preVideo]
       .forEach((v) => { if (v && v.srcObject) v.play().catch(() => {}); });
   }
 
@@ -348,6 +349,7 @@
   function applySink() {
     const id = E.spkSel.value || LS.get('spkId');
     if (id && E.remoteAudio.setSinkId) E.remoteAudio.setSinkId(id).catch(() => {});
+    if (id && E.remoteShareAudio.setSinkId) E.remoteShareAudio.setSinkId(id).catch(() => {});
   }
 
   // ---------- ③ 통화 ----------
@@ -497,6 +499,7 @@
   // ----- WebRTC -----
   function bindRemote() {
     E.remoteAudio.srcObject = S.remote.audio;
+    E.remoteShareAudio.srcObject = S.remote.shareAudio;
     [E.remoteCam, E.remoteCam2, E.panelFaceVideo].forEach((v) => { v.srcObject = S.remote.cam; });
     E.remoteScreen.srcObject = S.remote.screen;
     playAll();
@@ -507,14 +510,14 @@
     S.pc = pc;
     S.tx = {};
     S.pending = [];
-    S.remote = { audio: null, cam: null, screen: null };
+    S.remote = { audio: null, cam: null, screen: null, shareAudio: null };
     bindRemote();
 
     pc.onicecandidate = (e) => { if (e.candidate && S.pc === pc) sendSignal({ candidate: e.candidate.toJSON() }); };
     pc.ontrack = (e) => {
       if (S.pc !== pc) return;
       const idx = pc.getTransceivers().indexOf(e.transceiver);
-      const key = idx === 0 ? 'audio' : idx === 1 ? 'cam' : idx === 2 ? 'screen' : null;
+      const key = ['audio', 'cam', 'screen', 'shareAudio'][idx] || null;
       if (!key) return;
       S.remote[key] = new MediaStream([e.track]);
       bindRemote();
@@ -535,7 +538,7 @@
     S.dc = null;
     S.tx = {};
     S.pending = [];
-    S.remote = { audio: null, cam: null, screen: null };
+    S.remote = { audio: null, cam: null, screen: null, shareAudio: null };
     bindRemote();
   }
 
@@ -545,6 +548,7 @@
       if (tx.audio) await tx.audio.sender.replaceTrack(S.localAudio || null);
       if (tx.cam) await tx.cam.sender.replaceTrack(S.localVideo || null);
       if (tx.screen) await tx.screen.sender.replaceTrack(S.screenTrack || null);
+      if (tx.shareAudio) await tx.shareAudio.sender.replaceTrack(S.screenAudioTrack || null);
     } catch (e) { console.warn('attachSenders', e); }
   }
 
@@ -552,10 +556,11 @@
     closePC();
     S.isOfferer = true;
     const pc = createPC();
-    // 순서 고정: 0 음성, 1 카메라, 2 화면 → 화면 공유를 켜고 끌 때 다시 협상할 필요 없음
+    // 순서 고정: 0 음성, 1 카메라, 2 화면, 3 화면 소리 → 공유를 켜고 끌 때 다시 협상할 필요 없음
     S.tx.audio = pc.addTransceiver('audio', { direction: 'sendrecv' });
     S.tx.cam = pc.addTransceiver('video', { direction: 'sendrecv' });
     S.tx.screen = pc.addTransceiver('video', { direction: 'sendrecv' });
+    S.tx.shareAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
     await attachSenders();
     await makeOffer(false);
   }
@@ -584,7 +589,7 @@
           await pc.setRemoteDescription(desc);
           if (!S.tx.audio) {
             const t = pc.getTransceivers();
-            S.tx = { audio: t[0], cam: t[1], screen: t[2] };
+            S.tx = { audio: t[0], cam: t[1], screen: t[2], shareAudio: t[3] };
             t.forEach((x) => { try { x.direction = 'sendrecv'; } catch (e) { /* 무시 */ } });
             await attachSenders();
           }
@@ -726,11 +731,13 @@
     let stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { displaySurface: 'window', frameRate: { ideal: 15, max: 30 } },
-        audio: false,
-        monitorTypeSurfaces: 'include',
-        selfBrowserSurface: 'exclude',
-        surfaceSwitching: 'include',
+        video: { displaySurface: 'browser', frameRate: { ideal: 15, max: 30 } },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        monitorTypeSurfaces: 'exclude',   // Chrome: 전체 화면 항목 숨김
+        selfBrowserSurface: 'exclude',    // 통화 탭 자체는 고를 수 없음
+        surfaceSwitching: 'include',      // 공유 중 다른 탭으로 바꾸기 허용
+        systemAudio: 'exclude',
+        suppressLocalAudioPlayback: false,
       });
     } catch (e) {
       if (S.myShare === 'starting') {
@@ -742,22 +749,42 @@
       return;
     }
     const track = stream.getVideoTracks()[0];
-    if (S.myShare !== 'starting') { track.stop(); return; } // 그 사이 취소되었거나 상대가 공유 시작
+    const audioTrack = stream.getAudioTracks()[0] || null;
+    const stopAll = () => stream.getTracks().forEach((t) => t.stop());
+    if (S.myShare !== 'starting') { stopAll(); return; } // 그 사이 취소되었거나 상대가 공유 시작
     const surface = track.getSettings ? track.getSettings().displaySurface : undefined;
+    if (surface === 'monitor') {
+      // 전체 화면은 막음 (Safari/Firefox는 선택 창에서 숨길 수 없어서 여기서 확인)
+      stopAll();
+      S.myShare = null;
+      sendPeer({ t: 'share', s: 'off' });
+      toast('Entire screen can’t be shared. Please share a window or tab instead.', 5000);
+      updateUI();
+      return;
+    }
     // 알 수 없으면 전체 화면처럼 다룸 (얼굴 숨김이 더 안전)
     S.shareSurface = surface === 'window' || surface === 'browser' ? surface : 'monitor';
     try { track.contentHint = 'detail'; } catch (e) { /* 무시 */ }
     track.onended = () => { if (S.screenTrack === track) stopShare(true); };
     S.screenTrack = track;
+    S.screenAudioTrack = audioTrack;
+    if (audioTrack) audioTrack.onended = null;
     if (S.tx.screen) {
       try { await S.tx.screen.sender.replaceTrack(track); } catch (e) { console.warn('share', e); }
       tuneScreenSender();
     }
+    if (S.tx.shareAudio) {
+      try { await S.tx.shareAudio.sender.replaceTrack(audioTrack); } catch (e) { console.warn('share audio', e); }
+      tuneShareAudio();
+    }
     E.myScreen.srcObject = new MediaStream([track]);
     S.myShare = 'me';
     sendPeer({ t: 'share', s: 'on' });
-    const what = S.shareSurface === 'window' ? 'a window' : S.shareSurface === 'browser' ? 'a tab' : 'your entire screen';
-    toast(S.partnerShare === 'on' ? `Sharing ${what} · their share stopped automatically` : `Sharing ${what}`);
+    const what = (S.shareSurface === 'window' ? 'a window' : S.shareSurface === 'browser' ? 'a tab' : 'your screen')
+      + (audioTrack ? ' with sound' : '');
+    let msg = S.partnerShare === 'on' ? `Sharing ${what} · their share stopped automatically` : `Sharing ${what}`;
+    if (!audioTrack && S.shareSurface === 'window') msg += ' · To send video sound, share a Chrome tab instead';
+    toast(msg, audioTrack ? 3200 : 5000);
     S.partnerShare = null;
     updateUI();
     playAll();
@@ -775,12 +802,27 @@
     } catch (e) { /* 무시 */ }
   }
 
+  function tuneShareAudio() {
+    const s = S.tx.shareAudio && S.tx.shareAudio.sender;
+    if (!s || !s.getParameters) return;
+    try {
+      const p = s.getParameters();
+      if (!p.encodings || !p.encodings.length) return;
+      p.encodings[0].maxBitrate = 128000; // 음악/영상 소리용으로 넉넉하게
+      s.setParameters(p).catch(() => {});
+    } catch (e) { /* 무시 */ }
+  }
+
   function stopShare(notify) {
     const was = S.myShare;
     const t = S.screenTrack;
+    const a = S.screenAudioTrack;
     S.screenTrack = null;
+    S.screenAudioTrack = null;
     if (t) { t.onended = null; t.stop(); }
+    if (a) a.stop();
     if (S.tx.screen) S.tx.screen.sender.replaceTrack(null).catch(() => {});
+    if (S.tx.shareAudio) S.tx.shareAudio.sender.replaceTrack(null).catch(() => {});
     S.myShare = null;
     S.shareSurface = null;
     E.myScreen.srcObject = null;
@@ -979,9 +1021,10 @@
     E.pipOpen.hidden = !pipSupported || !!S.pipWin || S.myShare !== 'me';
     E.pipOpen2.hidden = E.pipOpen.hidden;
     E.shareBanner.hidden = !facesOk;
-    E.shareBannerText.textContent = S.shareSurface === 'browser'
+    E.shareBannerText.textContent = (S.shareSurface === 'browser'
       ? 'Sharing a tab · they only see that tab'
-      : 'Sharing a window · they only see that window';
+      : 'Sharing a window · they only see that window')
+      + (S.screenAudioTrack ? ' · with sound' : '');
     E.pipNote.hidden = !S.pipWin;
 
     const ready = S.partnerShare === 'on' && S.pFrame;
