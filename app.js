@@ -50,6 +50,7 @@
     sigChain: Promise.resolve(),
     remote: { audio: null, cam: null, screen: null },
     screenTrack: null,
+    shareSurface: null,     // 'monitor' | 'window' | 'browser'
     myShare: null,          // null | 'starting' | 'me'
     partnerShare: null,     // null | 'starting' | 'on'
     pFrame: false,
@@ -725,11 +726,11 @@
     let stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { displaySurface: 'monitor', frameRate: { ideal: 15, max: 30 } },
+        video: { displaySurface: 'window', frameRate: { ideal: 15, max: 30 } },
         audio: false,
         monitorTypeSurfaces: 'include',
         selfBrowserSurface: 'exclude',
-        surfaceSwitching: 'exclude',
+        surfaceSwitching: 'include',
       });
     } catch (e) {
       if (S.myShare === 'starting') {
@@ -743,14 +744,8 @@
     const track = stream.getVideoTracks()[0];
     if (S.myShare !== 'starting') { track.stop(); return; } // 그 사이 취소되었거나 상대가 공유 시작
     const surface = track.getSettings ? track.getSettings().displaySurface : undefined;
-    if (surface && surface !== 'monitor') {
-      track.stop();
-      S.myShare = null;
-      sendPeer({ t: 'share', s: 'off' });
-      toast('Please choose Entire screen. Windows and tabs can’t be shared', 4500);
-      updateUI();
-      return;
-    }
+    // 알 수 없으면 전체 화면처럼 다룸 (얼굴 숨김이 더 안전)
+    S.shareSurface = surface === 'window' || surface === 'browser' ? surface : 'monitor';
     try { track.contentHint = 'detail'; } catch (e) { /* 무시 */ }
     track.onended = () => { if (S.screenTrack === track) stopShare(true); };
     S.screenTrack = track;
@@ -761,7 +756,8 @@
     E.myScreen.srcObject = new MediaStream([track]);
     S.myShare = 'me';
     sendPeer({ t: 'share', s: 'on' });
-    toast(S.partnerShare === 'on' ? 'You’re sharing now · their share stopped automatically' : 'Sharing your entire screen');
+    const what = S.shareSurface === 'window' ? 'a window' : S.shareSurface === 'browser' ? 'a tab' : 'your entire screen';
+    toast(S.partnerShare === 'on' ? `Sharing ${what} · their share stopped automatically` : `Sharing ${what}`);
     S.partnerShare = null;
     updateUI();
     playAll();
@@ -786,6 +782,7 @@
     if (t) { t.onended = null; t.stop(); }
     if (S.tx.screen) S.tx.screen.sender.replaceTrack(null).catch(() => {});
     S.myShare = null;
+    S.shareSurface = null;
     E.myScreen.srcObject = null;
     E.panelPtr.classList.remove('on');
     closePip();
@@ -944,7 +941,9 @@
   // ---------- 화면 갱신 ----------
   function updateUI() {
     if (S.screen === 'pre') updatePre();
-    const mode = S.myShare ? 'me' : S.partnerShare ? 'partner' : 'normal';
+    // 창/탭 공유 중에는 통화 페이지가 상대에게 보이지 않으므로 얼굴을 그대로 보여줌
+    const facesOk = S.myShare === 'me' && S.shareSurface !== 'monitor';
+    const mode = S.myShare && !facesOk ? 'me' : S.myShare ? 'normal' : S.partnerShare ? 'partner' : 'normal';
     E.stage.dataset.mode = mode;
 
     const has = !!S.partner;
@@ -978,6 +977,11 @@
     E.panelMic.classList.toggle('off', !S.micOn);
     const pipSupported = 'documentPictureInPicture' in window;
     E.pipOpen.hidden = !pipSupported || !!S.pipWin || S.myShare !== 'me';
+    E.pipOpen2.hidden = E.pipOpen.hidden;
+    E.shareBanner.hidden = !facesOk;
+    E.shareBannerText.textContent = S.shareSurface === 'browser'
+      ? 'Sharing a tab · they only see that tab'
+      : 'Sharing a window · they only see that window';
     E.pipNote.hidden = !S.pipWin;
 
     const ready = S.partnerShare === 'on' && S.pFrame;
@@ -1045,6 +1049,8 @@
     E.shareBtn.addEventListener('click', toggleShare);
     E.cancelShare.addEventListener('click', toggleShare);
     E.stopShareBig.addEventListener('click', () => stopShare(true));
+    E.stopShareBanner.addEventListener('click', () => stopShare(true));
+    E.pipOpen2.addEventListener('click', openPip);
     E.panelStop.addEventListener('click', () => stopShare(true));
     E.pipOpen.addEventListener('click', openPip);
     E.faceToggle.addEventListener('click', () => { S.faceShown = !S.faceShown; LS.set('faceShown', S.faceShown); updateUI(); });

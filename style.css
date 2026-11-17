@@ -127,7 +127,10 @@ video.fill { position: absolute; inset: 0; width: 100%; height: 100%; object-fit
 .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: pulse 1.4s ease-in-out infinite; }
 .spinner { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--line2); border-top-color: var(--accent); animation: spin .9s linear infinite; }
 
-.panel-home { position: absolute; top: 16px; right: 16px; width: 340px; }
+.panel-home { position: absolute; top: 16px; right: 16px; width: 340px; z-index: 6; }
+.share-banner { position: absolute; top: 16px; left: 16px; z-index: 6; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--accent); color: #fff; border-radius: 10px; padding: 8px 12px; font-size: 14px; font-weight: 500; max-width: calc(100% - 390px); }
+.share-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: pulse 1.4s ease-in-out infinite; }
+.share-banner .btn.ghost { color: #fff; border-color: rgba(255,255,255,.6); }
 .panel { background: #0B0D11; border: 1px solid var(--line2); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
 .panel-head { display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--panel2); font-size: 12px; color: var(--soft); }
 .panel-screen { position: relative; aspect-ratio: 16 / 10; background: #000; }
@@ -179,6 +182,7 @@ body.pip-body .panel-screen { flex: 1; aspect-ratio: auto; min-height: 0; }
 @media (max-width: 760px) {
   .screen { padding: 14px; }
   .me-status { padding: 24px 24px 300px; }
+  .share-banner { max-width: calc(100% - 32px); }
   .panel-home { top: auto; bottom: 12px; right: 12px; left: 12px; width: auto; max-width: 340px; margin: 0 auto; }
   .screen-area { right: 0; bottom: 120px; }
   .faces { top: auto; left: 12px; right: 12px; bottom: 12px; width: auto; height: 100px; flex-direction: row; }
