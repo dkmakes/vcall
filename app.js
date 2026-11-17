@@ -737,8 +737,8 @@
         monitorTypeSurfaces: 'exclude',   // Chrome: 전체 화면 항목 숨김
         selfBrowserSurface: 'exclude',    // 통화 탭 자체는 고를 수 없음
         surfaceSwitching: 'include',      // 공유 중 다른 탭으로 바꾸기 허용
-        systemAudio: 'include',
-        windowAudio: 'system',            // 창 공유 때 "system audio" 스위치를 켜진 상태로
+        // 처음 버전(스위치가 켜진 채로 보였던 설정)과 같게: 전체 화면용 시스템 소리만 제외, windowAudio는 Chrome 기본값
+        systemAudio: 'exclude',
         suppressLocalAudioPlayback: false,
       });
     } catch (e) {
