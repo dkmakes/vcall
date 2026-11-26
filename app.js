@@ -740,11 +740,10 @@
         video: { displaySurface: 'window', frameRate: { ideal: 15, max: 30 } },
         // restrictOwnAudio: 시스템 소리에서 이 통화 페이지가 내는 소리(상대 목소리)는 빼고 보냄 → 메아리 방지 (지원하는 Chrome에서)
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true },
-        monitorTypeSurfaces: 'exclude',   // Chrome: 전체 화면 항목 숨김
+        monitorTypeSurfaces: 'include',   // 전체 화면도 고를 수 있음
         selfBrowserSurface: 'exclude',    // 통화 탭 자체는 고를 수 없음
         surfaceSwitching: 'include',      // 공유 중 다른 탭으로 바꾸기 허용
-        // 처음 버전(스위치가 켜진 채로 보였던 설정)과 같게: 전체 화면용 시스템 소리만 제외, windowAudio는 Chrome 기본값
-        systemAudio: 'exclude',
+        systemAudio: 'include',           // 전체 화면 공유 때도 시스템 소리 선택 가능
         suppressLocalAudioPlayback: false,
       });
     } catch (e) {
@@ -761,15 +760,6 @@
     const stopAll = () => stream.getTracks().forEach((t) => t.stop());
     if (S.myShare !== 'starting') { stopAll(); return; } // 그 사이 취소되었거나 상대가 공유 시작
     const surface = track.getSettings ? track.getSettings().displaySurface : undefined;
-    if (surface === 'monitor') {
-      // 전체 화면은 막음 (Safari/Firefox는 선택 창에서 숨길 수 없어서 여기서 확인)
-      stopAll();
-      S.myShare = null;
-      sendPeer({ t: 'share', s: 'off' });
-      toast('Entire screen can’t be shared. Please share a window or tab instead.', 5000);
-      updateUI();
-      return;
-    }
     // 알 수 없으면 전체 화면처럼 다룸 (얼굴 숨김이 더 안전)
     S.shareSurface = surface === 'window' || surface === 'browser' ? surface : 'monitor';
     try { track.contentHint = 'detail'; } catch (e) { /* 무시 */ }
