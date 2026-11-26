@@ -103,6 +103,108 @@ async function getIceServers(env) {
   return list;
 }
 
+
+// ---------- Notes: 받아쓰기 / 요약 ----------
+async function readJson(request, maxBytes) {
+  const len = Number(request.headers.get("Content-Length") || 0);
+  if (len && len > maxBytes) throw new Error("too_large");
+  const text = await request.text();
+  if (text.length > maxBytes) throw new Error("too_large");
+  return JSON.parse(text);
+}
+
+async function transcribe(env, body) {
+  if (!env.AI) return { status: 501, data: { error: "transcribe_not_configured" } };
+  const audio = String(body.audio || "");
+  if (!audio) return { status: 400, data: { error: "no_audio" } };
+  const prompt = String(body.prompt || "").slice(0, 600);
+  const base = { audio, language: "en" };
+  const attempts = prompt ? [{ ...base, initial_prompt: prompt }, base] : [base];
+  let lastErr = null;
+  for (const input of attempts) {
+    try {
+      const r = await env.AI.run("@cf/openai/whisper-large-v3-turbo", input);
+      return { status: 200, data: { text: String((r && r.text) || "").trim() } };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  return { status: 502, data: { error: "transcribe_failed", detail: String(lastErr && lastErr.message || lastErr).slice(0, 200) } };
+}
+
+const SUMMARY_RULES = `You turn a rough call transcript into short, accurate call notes.
+
+About the transcript:
+- It is English spoken by NON-NATIVE speakers (native Korean and others). Expect accents, broken grammar, wrong word choices and mis-transcribed words.
+- Understand what each person MEANT. Fix obvious mis-hearings using context and the glossary (e.g. "beat move" -> "BeatMov").
+- Lines are "[time] Name: text", time is Europe/Berlin.
+
+Write plain text (no markdown symbols except "- " bullets), in English, in exactly this layout:
+
+Summary
+- 3 to 8 bullets with the substance of the call
+
+To-dos
+- Name: task (due date/time if one was said)
+
+Schedule
+- Day, date, time: what (only dates/times that were actually agreed or mentioned)
+
+Decisions
+- only if any were made
+
+Open questions
+- only if any remain
+
+Small talk: one short line, or leave this line out
+
+Rules:
+- Ignore fillers, false starts, repetitions and greetings.
+- Never invent facts, names, numbers, dates or times. If something is unclear, keep it and add "[?]".
+- Resolve relative dates ("next Friday") against the call date given below, and keep the original wording in brackets if unsure.
+- If a section has nothing, write "- none".
+- Keep it short and practical.`;
+
+async function summarize(env, body) {
+  if (!env.GEMINI_API_KEY) return { status: 501, data: { error: "summary_not_configured" } };
+  const transcript = String(body.transcript || "").slice(0, 400000);
+  if (!transcript.trim()) return { status: 400, data: { error: "empty_transcript" } };
+  const names = (Array.isArray(body.names) ? body.names : []).map((n) => String(n).slice(0, 40)).join(", ");
+  const glossary = String(body.glossary || "").slice(0, 1000);
+  const when = String(body.when || "").slice(0, 120);
+  const user = `Call date/time (Europe/Berlin): ${when}\nParticipants: ${names || "unknown"}\nGlossary (correct spellings): ${glossary || "none"}\n\nTranscript:\n${transcript}`;
+  const base = String(env.GEMINI_BASE || "https://generativelanguage.googleapis.com").replace(/\/+$/, "");
+  const models = [env.GEMINI_MODEL, "gemini-flash-latest", "gemini-3.6-flash", "gemini-2.5-flash"].filter(Boolean);
+  let last = null;
+  for (const model of models) {
+    try {
+      const r = await fetch(`${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SUMMARY_RULES }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 8192 },
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const parts = (((d.candidates || [])[0] || {}).content || {}).parts || [];
+        const text = parts.map((p) => p.text || "").join("").trim();
+        if (text) return { status: 200, data: { text, model } };
+        last = { status: 502, msg: "empty_response" };
+        continue;
+      }
+      last = { status: r.status, msg: (d.error && d.error.message) || "error" };
+      if (r.status === 404 || r.status === 400) continue; // 모델 이름이 없으면 다음 후보
+      break;
+    } catch (e) {
+      last = { status: 502, msg: String(e && e.message || e) };
+    }
+  }
+  return { status: 502, data: { error: "summary_failed", detail: String(last && last.msg || "").slice(0, 300) } };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -129,6 +231,16 @@ export default {
       const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
       if (!(await verifyToken(env, token))) return json({ error: "unauthorized" }, 401, cors);
       return json({ iceServers: await getIceServers(env) }, 200, cors);
+    }
+
+    if ((url.pathname === "/transcribe" || url.pathname === "/summarize") && request.method === "POST") {
+      const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      if (!(await verifyToken(env, token))) return json({ error: "unauthorized" }, 401, cors);
+      let body;
+      try { body = await readJson(request, url.pathname === "/transcribe" ? 4 * 1024 * 1024 : 1024 * 1024); }
+      catch (e) { return json({ error: "bad_request" }, 400, cors); }
+      const out = url.pathname === "/transcribe" ? await transcribe(env, body) : await summarize(env, body);
+      return json(out.data, out.status, cors);
     }
 
     if (url.pathname === "/ws") {

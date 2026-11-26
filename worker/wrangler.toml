@@ -13,6 +13,10 @@ class_name = "Room"
 tag = "v1"
 new_sqlite_classes = ["Room"]
 
+# Workers AI (받아쓰기: Whisper)
+[ai]
+binding = "AI"
+
 [vars]
 # 이 주소에서 열린 화면만 서버를 쓸 수 있어요
 ALLOWED_ORIGINS = "https://dkmakes.com,https://www.dkmakes.com"
@@ -21,3 +25,5 @@ ALLOWED_ORIGINS = "https://dkmakes.com,https://www.dkmakes.com"
 #   ROOM_PASSWORD       통화방 비밀번호
 #   TURN_KEY_ID         Realtime > TURN 키 ID (선택)
 #   TURN_KEY_API_TOKEN  Realtime > TURN 키 API 토큰 (선택)
+#   GEMINI_API_KEY      Notes 요약용 Gemini API 키 (선택)
+#   GEMINI_MODEL        (선택) 요약 모델 이름. 비우면 기본값 사용

@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0E1014">
 <title>dkmakes call</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232F62E0'/%3E%3Cpath d='M8 11h11v10H8zM19 15l5-3v8l-5-3z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
 
@@ -17,6 +17,7 @@
       <svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></svg>
     </span>
     <span>dkmakes call</span>
+    <button id="notesOpen" class="btn ghost sm notes-open" type="button" hidden>Notes</button>
     <span id="callTimer" class="timer" role="timer" aria-label="Call duration" hidden><span class="tdot"></span><span id="timerText">00:00</span></span>
   </div>
   <span class="muted small" id="hostLabel"></span>
@@ -88,6 +89,10 @@
         </div>
         <select id="spkSel"></select>
         <span id="spkNote" class="hint" hidden>This browser can’t choose a speaker, so the default speaker is used.</span>
+      </div>
+      <div class="card stack-sm">
+        <label for="glossaryInput">Words to recognise in Notes <span class="muted">(optional)</span></label>
+        <input id="glossaryInput" type="text" maxlength="600" placeholder="Names, products, terms — separated by commas">
       </div>
       <p id="preErr" class="err" role="alert" hidden></p>
       <div class="actions">
@@ -202,6 +207,27 @@
       <button id="pipOpen2" class="btn ghost sm" type="button" hidden>Open preview window</button>
     </div>
 
+    <!-- Notes -->
+    <div id="notesLive" class="notes-live" role="status" hidden><span class="rec"></span><span id="notesLiveText">Notes on</span></div>
+    <section id="notesPanel" class="notes-panel" aria-label="Call notes" hidden>
+      <div class="notes-head">
+        <strong>Call notes</strong>
+        <span id="notesStatus" class="muted small"></span>
+        <button id="notesClose" class="iconbtn" type="button" aria-label="Close notes">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div id="notesBusy" class="notes-busy" hidden><span class="spinner"></span><span id="notesBusyText">Summarizing… about 30 seconds</span></div>
+      <label for="notesText" class="sr">Call notes text</label>
+      <textarea id="notesText" class="notes-text" spellcheck="true" placeholder="Press the Notes button to record, press it again to get a summary here. You can both edit this text."></textarea>
+      <div class="notes-foot">
+        <span class="hint" id="notesHint">Both of you can edit this.</span>
+        <button id="notesRestore" class="btn ghost sm" type="button" hidden>Restore last notes</button>
+        <button id="notesCopy" class="btn ghost sm" type="button">Copy</button>
+        <button id="notesDownload" class="btn light sm" type="button">Download</button>
+      </div>
+    </section>
+
     <div id="netWarn" class="netwarn" role="status" hidden>
       <span id="netText">Connection is unstable…</span>
       <button id="reconnectBtn" class="btn light sm" type="button">Reconnect</button>
@@ -217,6 +243,9 @@
     </button>
     <button id="shareBtn" class="cbtn" type="button" aria-label="Share screen">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><g class="up"><path d="M12 13V8"/><path d="M9.5 10.5L12 8l2.5 2.5"/></g><g class="stop"><path d="M9.5 8l5 5"/><path d="M14.5 8l-5 5"/></g></svg>
+    </button>
+    <button id="notesBtn" class="cbtn" type="button" aria-label="Start notes">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M9 10h6M9 14h6M9 18h4"/></svg>
     </button>
     <button id="leaveBtn" class="cbtn leave" type="button" aria-label="Leave">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14.5c5-4.7 13-4.7 18 0l-2.2 2.6-3.8-1.2v-2.6a10 10 0 0 0-6 0v2.6L5.2 17.1z"/></svg>
@@ -250,7 +279,8 @@
 <audio id="remoteShareAudio" autoplay></audio>
 <audio id="testAudio"></audio>
 
-<script src="config.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="vendor/yjs.min.js?v=13"></script>
+<script src="config.js?v=13"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

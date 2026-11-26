@@ -31,3 +31,12 @@ cd worker && echo "ROOM_PASSWORD=test" > .dev.vars && npx wrangler dev
 # 다른 터미널: config.js를 http://127.0.0.1:8787 로 바꾸고
 python3 -m http.server 5500   # http://localhost:5500
 ```
+
+## Notes (기록 → 요약)
+
+- 통화 중 `Notes` 버튼: 한 번 누르면 기록 시작(양쪽에 ● Notes on), 다시 누르면 끝내고 요약
+- 각자 자기 마이크만 말이 멈출 때마다 조각으로 받아써요 (Cloudflare Workers AI, Whisper, 영어 고정)
+- 요약은 Gemini가 비원어민 영어를 감안해 Summary / To-dos / Schedule 등으로 정리
+- 요약은 두 사람 화면에 같은 창으로 뜨고, 함께 고칠 수 있어요 (Yjs, `vendor/yjs.min.js`). Copy / Download
+- 입장 전 화면의 "Words to recognise" 칸에 이름·용어를 넣으면 받아쓰기와 요약에 반영
+- 서버 Secret: `GEMINI_API_KEY` (없으면 요약 대신 원문 기록을 넣어 줌), 선택 `GEMINI_MODEL`

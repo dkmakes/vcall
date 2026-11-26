@@ -256,7 +256,7 @@
       if (kind === 'audio') S.localAudio = t; else S.localVideo = t;
       applyTrackEnabled();
       attachLocalPreviews();
-      if (kind === 'audio') startMeter();
+      if (kind === 'audio') { startMeter(); rebindCapture(); }
       const sender = kind === 'audio' ? S.tx.audio && S.tx.audio.sender : S.tx.cam && S.tx.cam.sender;
       if (sender) await sender.replaceTrack(t);
       E.preErr.hidden = true;
@@ -491,6 +491,7 @@
   }
 
   function partnerGone() {
+    notesPartnerGone();
     S.callStart = null;
     tickTimer();
     closePC();
@@ -653,7 +654,9 @@
       name: S.name,
       cam: camLive(),
       share: S.myShare === 'me' ? 'on' : S.myShare === 'starting' ? 'starting' : 'off',
+      notes: NOTES.on,
     });
+    sendDocState();
   }
 
   function onPeer(m) {
@@ -662,6 +665,7 @@
         if (S.partner && m.name) S.partner.name = String(m.name).slice(0, 30);
         S.partnerCam = !!m.cam;
         applyPartnerShare(m.share);
+        if (m.notes && !NOTES.on) notesStart(false);
         updateUI();
         break;
       case 'cam':
@@ -685,6 +689,7 @@
         }
         break;
       default:
+        onNotesPeer(m);
         break;
     }
   }
@@ -978,6 +983,424 @@
     surf.addEventListener('pointercancel', up);
   }
 
+  // ---------- Notes: 기록 → 요약 → 함께 고치기 ----------
+  const NOTES = { on: false, startedAt: 0, segs: [], pending: new Set(), cap: null, busy: false, panelOpen: false, waiters: {}, composing: false, sel: null, leaveArmed: 0 };
+  const Yjs = window.Y || null;
+  let ydoc = null;
+  let ytext = null;
+
+  function b64e(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  function b64d(str) {
+    const bin = atob(str);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  }
+  const TZ = 'Europe/Berlin';
+  function hhmm(ts) { return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: TZ }); }
+  function dayStr(ts) { return new Date(ts).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: TZ }); }
+
+  // --- 함께 고치는 문서 (Yjs) ---
+  function initDoc() {
+    if (ydoc || !Yjs) return;
+    ydoc = new Yjs.Doc();
+    ytext = ydoc.getText('notes');
+    ydoc.on('update', (u, origin) => {
+      if (origin !== 'remote') sendPeer({ t: 'y', u: b64e(u) });
+      saveNotesLocal();
+    });
+    ytext.observe((ev, tr) => {
+      if (tr.origin !== 'input') renderFromDoc();
+      updateUI();
+    });
+  }
+  function notesValue() { return ytext ? ytext.toString() : E.notesText.value; }
+  function storeSel() {
+    if (!ytext) return;
+    const ta = E.notesText;
+    NOTES.sel = {
+      s: Yjs.createRelativePositionFromTypeIndex(ytext, ta.selectionStart),
+      e: Yjs.createRelativePositionFromTypeIndex(ytext, ta.selectionEnd),
+    };
+  }
+  function renderFromDoc() {
+    if (!ytext || NOTES.composing) return;
+    const ta = E.notesText;
+    const val = ytext.toString();
+    if (ta.value === val) return;
+    const focused = document.activeElement === ta;
+    ta.value = val;
+    if (focused && NOTES.sel) {
+      const s = Yjs.createAbsolutePositionFromRelativePosition(NOTES.sel.s, ydoc);
+      const e = Yjs.createAbsolutePositionFromRelativePosition(NOTES.sel.e, ydoc);
+      if (s && e) ta.setSelectionRange(s.index, e.index);
+    }
+  }
+  function onNotesInput() {
+    if (!ytext) { saveNotesLocal(); updateUI(); return; }
+    const oldV = ytext.toString();
+    const newV = E.notesText.value;
+    let s = 0;
+    const min = Math.min(oldV.length, newV.length);
+    while (s < min && oldV[s] === newV[s]) s++;
+    let eo = oldV.length;
+    let en = newV.length;
+    while (eo > s && en > s && oldV[eo - 1] === newV[en - 1]) { eo--; en--; }
+    ydoc.transact(() => {
+      if (eo > s) ytext.delete(s, eo - s);
+      if (en > s) ytext.insert(s, newV.slice(s, en));
+    }, 'input');
+    storeSel();
+  }
+  function appendNotes(text) {
+    if (ytext) {
+      ydoc.transact(() => {
+        const cur = ytext.length;
+        ytext.insert(cur, (cur ? '\n\n————————\n\n' : '') + text);
+      }, 'summary');
+    } else {
+      E.notesText.value += (E.notesText.value ? '\n\n————————\n\n' : '') + text;
+      saveNotesLocal();
+    }
+    updateUI();
+  }
+  let saveTimer = 0;
+  function saveNotesLocal() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { const v = notesValue(); if (v.trim()) LS.set('notesText', v); }, 500);
+  }
+  function sendDocState() {
+    if (ydoc) sendPeer({ t: 'ysync', u: b64e(Yjs.encodeStateAsUpdate(ydoc)) });
+  }
+  function applyRemoteDoc(u) {
+    if (!ydoc) return;
+    try { Yjs.applyUpdate(ydoc, b64d(u), 'remote'); } catch (e) { console.warn('notes sync', e); }
+  }
+
+  // --- 패널 ---
+  function openPanel() { NOTES.panelOpen = true; E.notesPanel.hidden = false; E.stage.classList.add('notes-open'); renderFromDoc(); updateUI(); }
+  function closePanel() { NOTES.panelOpen = false; E.notesPanel.hidden = true; E.stage.classList.remove('notes-open'); updateUI(); }
+  function showBusy(text) { NOTES.busy = true; E.notesBusyText.textContent = text; E.notesBusy.hidden = false; updateUI(); }
+  function hideBusy() { NOTES.busy = false; E.notesBusy.hidden = true; updateUI(); }
+
+  // --- 녹음: 말이 멈춘 지점마다 조각으로 잘라 받아쓰기 ---
+  const WORKLET = "class R extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('vcall-rec',R);";
+
+  function makeVad(rate, onSegment) {
+    const WIN = Math.round(rate * 0.03);  // 30ms
+    let acc = [];
+    let accLen = 0;
+    let pre = [];
+    let seg = [];
+    let inSpeech = false;
+    let loud = 0;
+    let quiet = 0;
+    let segStart = 0;
+    let noise = 0.004;
+    function windowDone(w) {
+      let sum = 0;
+      for (let i = 0; i < w.length; i++) sum += w[i] * w[i];
+      const rms = Math.sqrt(sum / w.length);
+      const thr = Math.max(0.012, noise * 3);
+      if (!inSpeech) {
+        pre.push(w);
+        if (pre.length > 10) pre.shift();
+        if (rms > thr) {
+          loud += 1;
+          if (loud >= 3) { inSpeech = true; seg = pre.slice(); segStart = Date.now() - pre.length * 30; quiet = 0; }
+        } else {
+          loud = 0;
+          noise = noise * 0.95 + rms * 0.05;
+        }
+      } else {
+        seg.push(w);
+        quiet = rms > thr ? 0 : quiet + 1;
+        const dur = (seg.length * 30) / 1000;
+        if (quiet * 30 >= 700 || dur >= 25 || (dur >= 12 && quiet * 30 >= 300)) finish();
+      }
+    }
+    function finish() {
+      const speechSec = ((seg.length - quiet) * 30) / 1000;
+      if (inSpeech && speechSec >= 0.4) onSegment(seg, rate, segStart);
+      inSpeech = false; loud = 0; quiet = 0; pre = []; seg = [];
+    }
+    return {
+      push(frame) {
+        acc.push(frame);
+        accLen += frame.length;
+        while (accLen >= WIN) {
+          const all = new Float32Array(accLen);
+          let o = 0;
+          for (const f of acc) { all.set(f, o); o += f.length; }
+          windowDone(all.slice(0, WIN));
+          const rest = all.slice(WIN);
+          acc = rest.length ? [rest] : [];
+          accLen = rest.length;
+        }
+      },
+      flush() { if (inSpeech) finish(); },
+    };
+  }
+
+  function toWav16k(chunks, rate) {
+    let total = 0;
+    for (const c of chunks) total += c.length;
+    const flat = new Float32Array(total);
+    let o = 0;
+    for (const c of chunks) { flat.set(c, o); o += c.length; }
+    const ratio = rate / 16000;
+    const n = Math.floor(total / ratio);
+    const buf = new ArrayBuffer(44 + n * 2);
+    const v = new DataView(buf);
+    const str = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) {
+      const a = Math.floor(i * ratio);
+      const b = Math.min(total, Math.floor((i + 1) * ratio));
+      let s = 0;
+      for (let k = a; k < b; k++) s += flat[k];
+      const val = b > a ? s / (b - a) : flat[a] || 0;
+      v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, val)) * 32767, true);
+    }
+    return new Uint8Array(buf);
+  }
+
+  function glossaryText() { return String(LS.get('glossary', '') || '').trim(); }
+  const JUNK = /^(thank you\.?|thanks for watching[.!]?|you\.?|bye\.?|\.+|…)$/i;
+
+  function sendChunk(chunks, rate, ts) {
+    const wav = toWav16k(chunks, rate);
+    const names = [S.name, S.partner && S.partner.name].filter(Boolean).join(', ');
+    const g = glossaryText();
+    const prompt = [names && `Speakers: ${names}.`, g && `Terms: ${g}.`].filter(Boolean).join(' ');
+    const who = S.name || 'Guest';
+    const p = api('/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + S.token },
+      body: JSON.stringify({ audio: b64e(wav), prompt }),
+    }).then((r) => {
+      if (r.ok && r.data && r.data.text) {
+        const text = r.data.text.trim();
+        if (text && !JUNK.test(text)) {
+          const seg = { ts, who, text };
+          NOTES.segs.push(seg);
+          sendPeer({ t: 'seg', seg });
+        }
+      } else if (r.status === 501) {
+        if (!NOTES.warned) { NOTES.warned = true; toast('Notes can’t transcribe yet: the server isn’t set up for it', 5000); }
+      }
+    }).catch(() => {}).finally(() => NOTES.pending.delete(p));
+    NOTES.pending.add(p);
+  }
+
+  async function startCapture() {
+    if (!S.localAudio) return false;
+    const ctx = getAudioCtx();
+    if (!ctx || !ctx.audioWorklet) return false;
+    try {
+      if (!ctx._vcallRec) {
+        const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+        await ctx.audioWorklet.addModule(url);
+        ctx._vcallRec = true;
+      }
+      const node = new AudioWorkletNode(ctx, 'vcall-rec');
+      const sink = ctx.createGain();
+      sink.gain.value = 0;
+      node.connect(sink);
+      sink.connect(ctx.destination);
+      const vad = makeVad(ctx.sampleRate, sendChunk);
+      node.port.onmessage = (e) => vad.push(e.data);
+      const src = ctx.createMediaStreamSource(new MediaStream([S.localAudio]));
+      src.connect(node);
+      NOTES.cap = { src, node, sink, vad, ctx };
+      return true;
+    } catch (e) {
+      console.warn('notes capture', e);
+      return false;
+    }
+  }
+  function rebindCapture() {
+    const c = NOTES.cap;
+    if (!c || !S.localAudio) return;
+    try { c.src.disconnect(); } catch (e) { /* 무시 */ }
+    c.src = c.ctx.createMediaStreamSource(new MediaStream([S.localAudio]));
+    c.src.connect(c.node);
+  }
+  async function stopCapture() {
+    const c = NOTES.cap;
+    NOTES.cap = null;
+    if (c) {
+      c.vad.flush();
+      try { c.src.disconnect(); c.node.disconnect(); c.sink.disconnect(); c.node.port.onmessage = null; } catch (e) { /* 무시 */ }
+    }
+    await Promise.allSettled([...NOTES.pending]);
+  }
+
+  // --- 켜기 / 끄기 ---
+  async function notesStart(local) {
+    if (NOTES.on || NOTES.busy) return;
+    NOTES.on = true;
+    NOTES.startedAt = Date.now();
+    NOTES.segs = [];
+    NOTES.warned = false;
+    if (local) sendPeer({ t: 'notes', on: true });
+    else toast(`${partnerName()} turned on Notes`);
+    updateUI();
+    const ok = await startCapture();
+    if (!ok) toast('Your microphone isn’t available, so only the other person will be noted', 4500);
+  }
+
+  function waitFlushed(id, ms) {
+    return new Promise((resolve) => {
+      const t = setTimeout(() => { delete NOTES.waiters[id]; resolve(false); }, ms);
+      NOTES.waiters[id] = () => { clearTimeout(t); delete NOTES.waiters[id]; resolve(true); };
+    });
+  }
+
+  async function notesStop(local, reqId) {
+    if (!NOTES.on) return;
+    NOTES.on = false;
+    const id = reqId || Math.random().toString(36).slice(2, 10);
+    if (local) sendPeer({ t: 'notes', on: false, req: id });
+    openPanel();
+    showBusy(local ? 'Finishing transcription…' : 'Summarizing… about 30 seconds');
+    updateUI();
+    await stopCapture();
+    if (!local) { sendPeer({ t: 'notes-flushed', req: id }); return; }
+    if (S.partner && S.dc && S.dc.readyState === 'open') await waitFlushed(id, 20000);
+    await runSummary();
+  }
+
+  async function runSummary() {
+    const segs = NOTES.segs.slice().sort((a, b) => a.ts - b.ts);
+    if (!segs.length) {
+      hideBusy();
+      sendPeer({ t: 'notes-done', ok: false });
+      toast('Nothing was recorded, so there’s nothing to summarize');
+      return;
+    }
+    showBusy('Summarizing… about 30 seconds');
+    sendPeer({ t: 'notes-busy' });
+    const transcript = segs.map((s) => `[${hhmm(s.ts)}] ${s.who}: ${s.text}`).join('\n');
+    const when = `${dayStr(NOTES.startedAt)}, ${hhmm(NOTES.startedAt)}–${hhmm(Date.now())}`;
+    let text;
+    let ok = false;
+    try {
+      const r = await api('/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + S.token },
+        body: JSON.stringify({ transcript, names: [S.name || 'Guest', partnerName()], glossary: glossaryText(), when }),
+      });
+      if (r.ok && r.data && r.data.text) { text = r.data.text; ok = true; }
+      else if (r.status === 501) { text = 'Summaries aren’t set up yet (no Gemini key on the server). Raw notes:\n\n' + transcript; toast('Summary isn’t set up yet, so the raw notes were added', 5000); }
+      else { text = 'The summary failed. Raw notes:\n\n' + transcript; toast('The summary failed, so the raw notes were added', 5000); }
+    } catch (e) {
+      text = 'The summary failed (no connection). Raw notes:\n\n' + transcript;
+    }
+    appendNotes(`Call notes — ${when}\n\n${text.trim()}`);
+    hideBusy();
+    sendPeer({ t: 'notes-done', ok });
+  }
+
+  function notesToggle() {
+    if (NOTES.busy) return;
+    if (NOTES.on) notesStop(true); else notesStart(true);
+  }
+
+  function onNotesPeer(m) {
+    switch (m.t) {
+      case 'notes':
+        if (m.on) notesStart(false);
+        else notesStop(false, m.req);
+        break;
+      case 'seg':
+        if (m.seg && m.seg.text) NOTES.segs.push({ ts: Number(m.seg.ts) || Date.now(), who: String(m.seg.who || partnerName()).slice(0, 40), text: String(m.seg.text).slice(0, 4000) });
+        break;
+      case 'notes-flushed':
+        if (NOTES.waiters[m.req]) NOTES.waiters[m.req]();
+        break;
+      case 'notes-busy':
+        openPanel();
+        showBusy('Summarizing… about 30 seconds');
+        break;
+      case 'notes-done':
+        hideBusy();
+        openPanel();
+        break;
+      case 'y':
+      case 'ysync':
+        applyRemoteDoc(m.u);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function notesPartnerGone() {
+    Object.values(NOTES.waiters).forEach((fn) => fn());
+    if (NOTES.busy && !NOTES.on && !NOTES.cap && !NOTES.pending.size) {
+      // 상대가 요약 중에 나간 경우: 내 쪽은 기다림만 풀어 줌
+      if (E.notesBusyText.textContent.startsWith('Summarizing') && !NOTES.segs.length) hideBusy();
+    }
+  }
+
+  function downloadNotes() {
+    const text = notesValue();
+    if (!text.trim()) { toast('There are no notes yet'); return; }
+    const d = new Date();
+    const name = `call-notes-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.txt`;
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  function bindNotesUI() {
+    initDoc();
+    E.glossaryInput.value = glossaryText();
+    E.glossaryInput.addEventListener('input', () => LS.set('glossary', E.glossaryInput.value.slice(0, 600)));
+    E.notesBtn.addEventListener('click', notesToggle);
+    E.notesOpen.addEventListener('click', openPanel);
+    E.notesClose.addEventListener('click', closePanel);
+    E.notesText.addEventListener('input', onNotesInput);
+    ['select', 'keyup', 'mouseup', 'focus'].forEach((ev) => E.notesText.addEventListener(ev, storeSel));
+    E.notesText.addEventListener('compositionstart', () => { NOTES.composing = true; });
+    E.notesText.addEventListener('compositionend', () => { NOTES.composing = false; onNotesInput(); renderFromDoc(); });
+    E.notesCopy.addEventListener('click', () => {
+      const text = notesValue();
+      if (!text.trim()) { toast('There are no notes yet'); return; }
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => toast('Notes copied'), () => toast('Couldn’t copy. Select the text and copy it instead.'));
+    });
+    E.notesDownload.addEventListener('click', downloadNotes);
+    E.notesRestore.addEventListener('click', () => {
+      const old = LS.get('notesText', '');
+      if (old && !notesValue().trim()) appendNotes(old);
+    });
+  }
+
+  function updateNotesUI() {
+    const inCall = S.screen === 'call';
+    E.notesBtn.classList.toggle('rec-on', NOTES.on);
+    E.notesBtn.setAttribute('aria-label', NOTES.on ? 'Stop notes and summarize' : 'Start notes');
+    E.notesBtn.title = NOTES.on ? 'Stop notes and summarize' : 'Start notes';
+    E.notesBtn.disabled = NOTES.busy;
+    E.notesLive.hidden = !NOTES.on || !inCall;
+    const hasText = !!notesValue().trim();
+    E.notesOpen.hidden = !inCall || NOTES.panelOpen || !(hasText || NOTES.busy);
+    E.notesRestore.hidden = hasText || !LS.get('notesText', '');
+  }
+
   // ---------- 통화 시간 ----------
   function fmtDuration(ms) {
     const t = Math.max(0, Math.floor(ms / 1000));
@@ -994,12 +1417,14 @@
     const text = on ? fmtDuration(Date.now() - S.callStart) : '00:00';
     E.timerText.textContent = text;
     E.pipTimer.textContent = text;
+    if (NOTES.on) E.notesLiveText.textContent = `Notes on · ${fmtDuration(Date.now() - NOTES.startedAt)}`;
   }
   setInterval(tickTimer, 1000);
 
   // ---------- 화면 갱신 ----------
   function updateUI() {
     if (S.screen === 'pre') updatePre();
+    updateNotesUI();
     // 창/탭 공유 중에는 통화 페이지가 상대에게 보이지 않으므로 얼굴을 그대로 보여줌
     const facesOk = S.myShare === 'me' && S.shareSurface !== 'monitor';
     const mode = S.myShare && !facesOk ? 'me' : S.myShare ? 'normal' : S.partnerShare ? 'partner' : 'normal';
@@ -1062,6 +1487,9 @@
   // ---------- 나가기 ----------
   function leaveCall(silent) {
     S.leaving = true;
+    if (NOTES.on) { NOTES.on = false; stopCapture(); }
+    hideBusy();
+    closePanel();
     S.callStart = null;
     tickTimer();
     if (S.myShare) stopShare(true);
@@ -1119,7 +1547,14 @@
     E.panelStop.addEventListener('click', () => stopShare(true));
     E.pipOpen.addEventListener('click', openPip);
     E.faceToggle.addEventListener('click', () => { S.faceShown = !S.faceShown; LS.set('faceShown', S.faceShown); updateUI(); });
-    E.leaveBtn.addEventListener('click', () => leaveCall(false));
+    E.leaveBtn.addEventListener('click', () => {
+      if (NOTES.on && Date.now() - NOTES.leaveArmed > 4000) {
+        NOTES.leaveArmed = Date.now();
+        toast('Notes are still on. Press Notes to get the summary first, or press Leave again to leave without it.', 4500);
+        return;
+      }
+      leaveCall(false);
+    });
     E.reconnectBtn.addEventListener('click', manualReconnect);
     E.copyLink.addEventListener('click', () => {
       const url = location.origin + location.pathname.replace(/index\.html$/, '');
@@ -1142,6 +1577,7 @@
     document.addEventListener('click', () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {}); playAll(); }, { capture: true });
 
     setupViewerPointer();
+    bindNotesUI();
   }
 
   // ---------- 시작 ----------
