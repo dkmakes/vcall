@@ -117,9 +117,10 @@ async function transcribe(env, body) {
   if (!env.AI) return { status: 501, data: { error: "transcribe_not_configured" } };
   const audio = String(body.audio || "");
   if (!audio) return { status: 400, data: { error: "no_audio" } };
-  const prompt = String(body.prompt || "").slice(0, 600);
+  const core = "Kinora AI film-making platform. Beats and scenes. SFF, Start for Future. UX, UI. Pitch, pitch deck.";
+  const prompt = (core + " " + String(body.prompt || "")).slice(0, 600);
   const base = { audio, language: "en" };
-  const attempts = prompt ? [{ ...base, initial_prompt: prompt }, base] : [base];
+  const attempts = [{ ...base, initial_prompt: prompt }, base];
   let lastErr = null;
   for (const input of attempts) {
     try {
@@ -131,6 +132,24 @@ async function transcribe(env, body) {
   }
   return { status: 502, data: { error: "transcribe_failed", detail: String(lastErr && lastErr.message || lastErr).slice(0, 200) } };
 }
+
+
+// 이 통화방의 기본 맥락과 용어 (받아쓰기 오인식 바로잡기, 요약 방향)
+const NOTES_CONTEXT = `Most calls are about Kinora, an AI film-making platform the participants are building (the company/brand name is "Kinora").
+
+Glossary (meaning in these calls):
+- Kinora: the brand name of the AI film-making platform being built. Often mis-heard as "Cinora", "Kinnora", "keen ora", "cinema". Always write "Kinora".
+- Beats: a collection of scenes in a story/film; "beat" is a group of scenes, not music.
+- Scene: a single scene inside a beat.
+- SFF: Start for Future, a pan-European cooperative and movement that connects startups, universities, SMEs and regional ecosystems to co-create innovation and entrepreneurship.
+- UX: user experience. UI: user interface.
+- Pitch: a presentation to investors, partners or programmes (pitch deck, pitching). Never the fruit "peach"; "peach", "peach deck" or "pitching" mis-heard as "peaching" mean pitch.`;
+
+const SUMMARY_FOCUS = `
+Kinora focus:
+- Read everything through the lens of building and launching Kinora.
+- In Summary, start each bullet with the area it belongs to when it fits, for example [Product], [UX/UI], [Beats & scenes], [Pitch], [SFF], [Business], [Tech].
+- In To-dos, keep owner, task and due date; mention which Kinora area it belongs to when obvious.`;
 
 const SUMMARY_RULES = `You turn a rough call transcript into short, accurate call notes.
 
@@ -163,7 +182,8 @@ Rules:
 - Never invent facts, names, numbers, dates or times. If something is unclear, keep it and add "[?]".
 - Resolve relative dates ("next Friday") against the call date given below, and keep the original wording in brackets if unsure.
 - If a section has nothing, write "- none".
-- Keep it short and practical.`;
+- Keep it short and practical.
+${SUMMARY_FOCUS}`;
 
 async function summarize(env, body) {
   if (!env.GEMINI_API_KEY) return { status: 501, data: { error: "summary_not_configured" } };
@@ -172,7 +192,7 @@ async function summarize(env, body) {
   const names = (Array.isArray(body.names) ? body.names : []).map((n) => String(n).slice(0, 40)).join(", ");
   const glossary = String(body.glossary || "").slice(0, 1000);
   const when = String(body.when || "").slice(0, 120);
-  const user = `Call date/time (Europe/Berlin): ${when}\nParticipants: ${names || "unknown"}\nGlossary (correct spellings): ${glossary || "none"}\n\nTranscript:\n${transcript}`;
+  const user = `Context:\n${NOTES_CONTEXT}\n\nCall date/time (Europe/Berlin): ${when}\nParticipants: ${names || "unknown"}\nGlossary (correct spellings): ${glossary || "none"}\n\nTranscript:\n${transcript}`;
   const base = String(env.GEMINI_BASE || "https://generativelanguage.googleapis.com").replace(/\/+$/, "");
   const models = [env.GEMINI_MODEL, "gemini-flash-latest", "gemini-3.6-flash", "gemini-2.5-flash"].filter(Boolean);
   let last = null;
