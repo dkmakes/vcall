@@ -369,6 +369,7 @@
       return;
     }
     stopMeter();
+    resetNotes();
     S.leaving = false;
     S.wsRetries = 0;
     S.partner = null;
@@ -449,6 +450,7 @@
       case 'welcome':
         closePC();
         if (m.peers && m.peers.length) {
+          clearTimeout(NOTES.clearTimer);
           S.partner = { id: m.peers[0].id, name: m.peers[0].name };
           S.partnerCam = true;
           S.isOfferer = false;
@@ -462,6 +464,7 @@
         updateUI();
         break;
       case 'peer-joined':
+        clearTimeout(NOTES.clearTimer);
         S.partner = { id: m.id, name: m.name };
         S.partnerCam = true;
         S.partnerShare = null;
@@ -1068,10 +1071,21 @@
     }
     updateUI();
   }
-  let saveTimer = 0;
-  function saveNotesLocal() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { const v = notesValue(); if (v.trim()) LS.set('notesText', v); }, 500);
+  // 지난 통화 내용은 남기지 않음 (저장하지 않음)
+  function saveNotesLocal() {}
+
+  // 새 통화마다 빈 노트로 시작
+  function resetNotes() {
+    clearTimeout(NOTES.clearTimer);
+    if (ydoc) { try { ydoc.destroy(); } catch (e) { /* 무시 */ } }
+    ydoc = null;
+    ytext = null;
+    initDoc();
+    E.notesText.value = '';
+    NOTES.segs = [];
+    NOTES.sel = null;
+    hideBusy();
+    closePanel();
   }
   function sendDocState() {
     if (ydoc) sendPeer({ t: 'ysync', u: b64e(Yjs.encodeStateAsUpdate(ydoc)) });
@@ -1345,6 +1359,9 @@
 
   function notesPartnerGone() {
     Object.values(NOTES.waiters).forEach((fn) => fn());
+    // 상대가 1분 안에 다시 들어오지 않으면 통화가 끝난 것으로 보고 노트를 지움
+    clearTimeout(NOTES.clearTimer);
+    NOTES.clearTimer = setTimeout(() => { if (!S.partner && !NOTES.on) resetNotes(); }, 60000);
     if (NOTES.busy && !NOTES.on && !NOTES.cap && !NOTES.pending.size) {
       // 상대가 요약 중에 나간 경우: 내 쪽은 기다림만 풀어 줌
       if (E.notesBusyText.textContent.startsWith('Summarizing') && !NOTES.segs.length) hideBusy();
@@ -1383,10 +1400,7 @@
       if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => toast('Notes copied'), () => toast('Couldn’t copy. Select the text and copy it instead.'));
     });
     E.notesDownload.addEventListener('click', downloadNotes);
-    E.notesRestore.addEventListener('click', () => {
-      const old = LS.get('notesText', '');
-      if (old && !notesValue().trim()) appendNotes(old);
-    });
+    LS.del('notesText'); // 예전 버전이 저장해 둔 기록도 지움
   }
 
   function updateNotesUI() {
@@ -1398,7 +1412,7 @@
     E.notesLive.hidden = !NOTES.on || !inCall;
     const hasText = !!notesValue().trim();
     E.notesOpen.hidden = !inCall || NOTES.panelOpen || !(hasText || NOTES.busy);
-    E.notesRestore.hidden = hasText || !LS.get('notesText', '');
+    E.notesRestore.hidden = true;
   }
 
   // ---------- 통화 시간 ----------
@@ -1488,8 +1502,7 @@
   function leaveCall(silent) {
     S.leaving = true;
     if (NOTES.on) { NOTES.on = false; stopCapture(); }
-    hideBusy();
-    closePanel();
+    resetNotes();
     S.callStart = null;
     tickTimer();
     if (S.myShare) stopShare(true);
@@ -1548,9 +1561,12 @@
     E.pipOpen.addEventListener('click', openPip);
     E.faceToggle.addEventListener('click', () => { S.faceShown = !S.faceShown; LS.set('faceShown', S.faceShown); updateUI(); });
     E.leaveBtn.addEventListener('click', () => {
-      if (NOTES.on && Date.now() - NOTES.leaveArmed > 4000) {
+      const hasNotes = NOTES.on || !!notesValue().trim();
+      if (hasNotes && Date.now() - NOTES.leaveArmed > 4000) {
         NOTES.leaveArmed = Date.now();
-        toast('Notes are still on. Press Notes to get the summary first, or press Leave again to leave without it.', 4500);
+        toast(NOTES.on
+          ? 'Notes are still on. Press Notes to get the summary first, or press Leave again to leave without it.'
+          : 'Notes are deleted when the call ends. Copy or download them first, or press Leave again to leave.', 5000);
         return;
       }
       leaveCall(false);
